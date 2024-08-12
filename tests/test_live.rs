@@ -57,8 +57,12 @@ async fn run_message_tests(
     cycle_messages(topic.clone(), &mut producer, &mut consumer).await;
 
     // Large PUB
-    let mut large = Vec::new();
-    large.resize(1024 * 1024, 0);
+
+    // old slow code
+    // let mut large = Vec::new();
+    // large.resize(1024 * 1024, 0);
+
+    let large = vec![0; 1024 * 1024];
 
     producer.publish(&topic, large.clone()).await.unwrap();
     assert_matches!(producer.consume().await.unwrap(), NSQEvent::Ok());
@@ -321,8 +325,11 @@ async fn direct_connection_snappy_large() {
         )
         .build();
 
-    let mut large = Vec::new();
-    large.resize(1024 * 1024, 0);
+    // old slow code
+    // let mut large = Vec::new();
+    // large.resize(1024 * 1024, 0);
+
+    let large = vec![0; 1024 * 1024];
 
     assert_matches!(producer.consume().await.unwrap(), NSQEvent::Healthy());
     producer.publish(&topic, large.clone()).await.unwrap();

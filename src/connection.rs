@@ -142,8 +142,7 @@ impl NSQMessage {
     /// Sends a message acknowledgement to NSQ.
     pub async fn finish(mut self) {
         if self.context.healthy.load(Ordering::SeqCst) {
-            let _ = self
-                .context
+            self.context
                 .to_connection_tx_ref
                 .send(MessageToNSQ::FIN(self.id))
                 .await
@@ -188,12 +187,13 @@ impl Drop for NSQMessage {
     fn drop(&mut self) {
         if !self.consumed {
             if self.context.healthy.load(Ordering::SeqCst) {
-                let _ =
-                    self.context.to_connection_tx_ref.send(MessageToNSQ::REQ(
-                        self.id,
-                        self.attempt,
-                        NSQRequeueDelay::DefaultDelay,
-                    ));
+                // * nsqd will requeue the message automatically
+                // let _ =
+                //     self.context.to_connection_tx_ref.send(MessageToNSQ::REQ(
+                //         self.id,
+                //         self.attempt,
+                //         NSQRequeueDelay::DefaultDelay,
+                //     ));
             } else {
                 error!("NSQMessage::drop failed");
             }
@@ -255,15 +255,21 @@ async fn read_frame_data<S: AsyncRead + std::marker::Unpin>(
 
     match frame_type {
         FRAME_TYPE_RESPONSE => {
-            let mut frame_body = Vec::new();
-            frame_body.resize(frame_body_size as usize, 0);
+            // * old slow code
+            // let mut frame_body = Vec::new();
+            // frame_body.resize(frame_body_size as usize, 0);
+
+            let mut frame_body = vec![0; frame_body_size as usize];
             stream.read_exact(&mut frame_body).await?;
 
             Ok(Frame::Response(frame_body))
         }
         FRAME_TYPE_ERROR => {
-            let mut frame_body = Vec::new();
-            frame_body.resize(frame_body_size as usize, 0);
+            // * old slow code
+            // let mut frame_body = Vec::new();
+            // frame_body.resize(frame_body_size as usize, 0);
+
+            let mut frame_body = vec![0; frame_body_size as usize];
             stream.read_exact(&mut frame_body).await?;
 
             match frame_body.as_slice() {
@@ -289,8 +295,12 @@ async fn read_frame_data<S: AsyncRead + std::marker::Unpin>(
             stream.read_exact(&mut message_id).await?;
 
             let body_size = frame_body_size - 8 - 2 - 16;
-            let mut message_body = Vec::new();
-            message_body.resize(body_size as usize, 0);
+
+            // * old slow code
+            // let mut message_body = Vec::new();
+            // message_body.resize(body_size as usize, 0);
+
+            let mut message_body = vec![0; body_size as usize];
             stream.read_exact(&mut message_body).await?;
 
             Ok(Frame::Message(FrameMessage {
@@ -501,8 +511,6 @@ async fn handle_single_command<S: AsyncWrite + std::marker::Unpin>(
     match message {
         MessageToNSQ::NOP => {
             write_nop(stream).await?;
-            // nop is used as a response to heartbeats so lets instantly flush
-            stream.flush().await?;
         }
         MessageToNSQ::PUB(topic, body) => {
             write_pub(stream, topic, &body).await?;
@@ -563,6 +571,9 @@ async fn handle_single_command<S: AsyncWrite + std::marker::Unpin>(
         }
     }
 
+    // * flush the stream after each command
+    stream.flush().await?;
+
     Ok(())
 }
 
@@ -572,19 +583,25 @@ async fn handle_commands<S: AsyncWrite + std::marker::Unpin>(
     to_connection_rx: &mut tokio::sync::mpsc::Receiver<MessageToNSQ>,
     stream: &mut S,
 ) -> Result<(), Error> {
-    let mut interval = tokio::time::interval(config.shared.flush_interval);
+    // old code
+    // let mut interval = tokio::time::interval(config.shared.flush_interval);
+
+    // loop {
+    //     tokio::select! {
+    //         message = to_connection_rx.recv() => {
+    //             let message = message.ok_or(NoneError)?;
+
+    //             handle_single_command(config, shared, message, stream).await?;
+    //         },
+    //         _ = interval.tick() => {
+    //             stream.flush().await?;
+    //         }
+    //     }
+    // }
 
     loop {
-        tokio::select! {
-            message = to_connection_rx.recv() => {
-                let message = message.ok_or(NoneError)?;
-
-                handle_single_command(config, shared, message, stream).await?;
-            },
-            _ = interval.tick() => {
-                stream.flush().await?;
-            }
-        }
+        let message = to_connection_rx.recv().await.ok_or(NoneError)?;
+        handle_single_command(config, shared, message, stream).await?;
     }
 }
 
@@ -673,6 +690,9 @@ fn read_to_dyn<S: Send + AsyncRead + std::marker::Unpin + 'static>(
 async fn run_connection(state: &mut NSQDConnectionState) -> Result<(), Error> {
     let stream =
         tokio::net::TcpStream::connect(state.config.address.clone()).await?;
+
+    // * set nodelay flag
+    stream.set_nodelay(true)?;
 
     let mut stream = TimeoutStream::new(stream);
     if let Some(timeout) = state.config.shared.write_timeout {
@@ -900,7 +920,8 @@ async fn run_connection_supervisor(mut state: NSQDConnectionState) {
                 state.shared.healthy.store(false, Ordering::SeqCst);
                 state.shared.current_ready.store(0, Ordering::SeqCst);
 
-                let _ = state.from_connection_tx.send(NSQEvent::Unhealthy());
+                // old code
+                // let _ = state.from_connection_tx.send(NSQEvent::Unhealthy());
 
                 if let Some(error) = generic.downcast_ref::<tokio::io::Error>()
                 {
@@ -1122,7 +1143,7 @@ where
         cx: &mut std::task::Context,
         buf: &mut ReadBuf,
     ) -> Poll<Result<(), std::io::Error>> {
-        let mut me = Pin::into_inner(self);
+        let me = Pin::into_inner(self);
         if Pin::new(&mut me.inner).poll_read(cx, buf).is_ready() {
             me.read_delay = None;
             return Poll::Ready(Ok(()));
@@ -1155,7 +1176,7 @@ where
         cx: &mut std::task::Context<'_>,
         buf: &[u8],
     ) -> Poll<Result<usize, std::io::Error>> {
-        let mut me = Pin::into_inner(self);
+        let me = Pin::into_inner(self);
         if let Poll::Ready(n) = Pin::new(&mut me.inner).poll_write(cx, buf) {
             me.write_delay = None;
             return Poll::Ready(n);
@@ -1182,7 +1203,7 @@ where
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        let mut me = Pin::into_inner(self);
+        let me = Pin::into_inner(self);
         if Pin::new(&mut me.inner).poll_flush(cx).is_ready() {
             me.write_delay = None;
             return Poll::Ready(Ok(()));
@@ -1209,7 +1230,7 @@ where
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), std::io::Error>> {
-        let mut me = Pin::into_inner(self);
+        let me = Pin::into_inner(self);
         if Pin::new(&mut me.inner).poll_shutdown(cx).is_ready() {
             me.write_delay = None;
             return Poll::Ready(Ok(()));

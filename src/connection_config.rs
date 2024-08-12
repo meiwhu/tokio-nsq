@@ -81,6 +81,7 @@ pub struct NSQConfigShared {
     pub(crate) read_timeout: Option<std::time::Duration>,
     pub(crate) hostname: Option<String>,
     pub(crate) user_agent: Option<String>,
+    /// Deprecated.
     pub(crate) flush_interval: std::time::Duration,
 }
 

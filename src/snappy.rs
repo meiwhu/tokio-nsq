@@ -290,8 +290,11 @@ mod test {
 
         writer.get_mut().set_position(0);
 
-        let mut result: Vec<u8> = Vec::new();
-        result.resize(12, 0);
+        // old slow code
+        // let mut result: Vec<u8> = Vec::new();
+        // result.resize(12, 0);
+
+        let mut result: Vec<u8> = vec![0; 12];
 
         reader.read_exact(&mut result).await.unwrap();
 
@@ -306,8 +309,10 @@ mod test {
         let mut reader = NSQSnappyInflate::new(Cursor::new(buffer_read));
         let mut writer = NSQSnappyDeflate::new(Cursor::new(buffer_write));
 
-        let mut large: Vec<u8> = Vec::new();
-        large.resize(1024 * 1024, 0);
+        // let mut large: Vec<u8> = Vec::new();
+        // large.resize(1024 * 1024, 0);
+
+        let large: Vec<u8> = vec![0; 1024 * 1024];
 
         writer.write_all(&large).await.unwrap();
         let position = writer.get_mut().position() as usize;
